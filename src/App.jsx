@@ -210,7 +210,7 @@ function seedTargets() {
 // TEMPEL di sini URL Web App Apps Script setelah di-deploy (lihat panduan yang
 // menyertai file ini). Selama masih kosong, aplikasi otomatis memakai
 // penyimpanan demo bawaan (window.storage) seperti sebelumnya — tidak akan rusak.
-const APPS_SCRIPT_URL = "";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbymRH13LliJQMnT2Ys0O2tbZ31NSWwixV03IckRr8YYqtpk1A1Ib35tekzPpX4Z7e9G/exec";
 
 const hasBackend = () => APPS_SCRIPT_URL.trim().length > 0;
 
