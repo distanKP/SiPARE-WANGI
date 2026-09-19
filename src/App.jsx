@@ -100,7 +100,7 @@ const KECAMATAN_MAP = {
   "Kabupaten Sumba Timur": ["Kota Waingapu", "Haharu", "Lewa", "Nggaha Ori Angu", "Tabundung", "Pinu Pahar", "Pandawai", "Umalulu", "Rindi", "Pahunga Lodu", "Wulla Waijelu", "Paberiwai", "Karera", "Kahaungu Eti", "Matawai La Pawu", "Kambera", "Kambata Mapambuhang", "Lewa Tidahu", "Katala Hamu Lingu", "Kanatang", "Ngadu Ngala", "Mahu"],
   "Kabupaten Manggarai Barat": ["Macang Pacar", "Kuwus", "Lembor", "Sano Nggoang", "Komodo", "Boleng", "Welak", "Ndoso", "Lembor Selatan", "Mbeliling", "Pacar", "Kuwus Barat"],
   "Kabupaten Manggarai": ["Wae Rii", "Ruteng", "Satar Mese", "Cibal", "Reok", "Langke Rembong", "Satar Mese Barat", "Rahong Utara", "Lelak", "Reok Barat", "Cibal Barat", "Satar Mese Utara"],
-  "Kabupaten Manggarai Timur": ["Borong", "Poco Ranaka", "Lamba Leda", "Lamba Leda Utara", "Sambi Rampas", "Elar", "Kota Komba", "Rana Mese", "Poco Ranaka Timur", "Elar Selatan"],
+  "Kabupaten Manggarai Timur": ["Borong", "Lamba Leda Selatan", "Lamba Leda", "Lamba Leda Utara", "Sambi Rampas", "Elar", "Kota Komba", "Kota Komba Utara", "Rana Mese", "Lamba Leda Timur", "Elar Selatan", "Congkar"],
   "Kabupaten Ngada": ["Aimere", "Golewa", "Bajawa", "Soa", "Riung", "Jerebuu", "Riung Barat", "Bajawa Utara", "Wolomeze", "Golewa Selatan", "Golewa Barat", "Inerie"],
   "Kabupaten Nagekeo": ["Aesesa", "Nangaroro", "Boawae", "Mauponggo", "Wolowae", "Keo Tengah", "Aesesa Selatan"],
   "Kabupaten Ende": ["Detukeli", "Detusoko", "Ende", "Ende Selatan", "Ende Tengah", "Ende Timur", "Ende Utara", "Kelimutu", "Kota Baru", "Lepembusu Kelisoke", "Lio Timur", "Maukaro", "Maurole", "Nangapanda", "Ndona", "Ndona Timur", "Ndori", "Pulau Ende", "Wewaria", "Wolowaru", "Wolojita"],
