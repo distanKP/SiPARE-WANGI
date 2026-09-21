@@ -6,7 +6,7 @@ import {
 import {
   LogIn, LogOut, LayoutDashboard, ClipboardPlus, Target as TargetIcon,
   MapPinned, Wheat, ChevronDown, Loader2, Plus, Info, X, Check, Table2, Download,
-  Menu, CalendarDays, CheckCircle2, Circle, Clock, KeyRound, HelpCircle, Pencil, Trash2, Save,
+  Menu, CalendarDays, CheckCircle2, Circle, Clock, KeyRound, HelpCircle, Pencil, Trash2, Save, Users,
 } from "lucide-react";
 import { MapContainer, TileLayer, CircleMarker, Tooltip as LeafletTooltip } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -93,6 +93,14 @@ const shortName = (n) => n.replace(/^Kabupaten /, "").replace(/^Kota /, "Kota ")
 
 // Format nilai luas (Ha) selalu 2 angka di belakang titik, mis. 4.75, 0.25 — bukan format id-ID (koma)
 const fmtHa = (n) => Number(n || 0).toFixed(2);
+
+// Menormalkan nilai tanggal jadi persis "YYYY-MM-DD", apa pun bentuk aslinya.
+// Perlu karena Google Sheets kadang otomatis mengubah teks tanggal jadi tipe
+// Date, sehingga saat dibaca kembali lewat Apps Script formatnya berubah jadi
+// string ISO lengkap (mis. "2026-09-15T00:00:00.000Z"). Tanpa normalisasi ini,
+// perbandingan tanggal persis (dipakai di Tabulasi → Harian) akan selalu gagal
+// cocok untuk data yang sudah pernah dimuat ulang dari Sheets.
+const dateOnly = (v) => String(v || "").slice(0, 10);
 
 // Daftar kecamatan resmi per kabupaten/kota, digunakan untuk dropdown pilihan
 // (bukan input teks bebas) pada form input harian.
@@ -213,15 +221,31 @@ function seedTargets() {
 // TEMPEL di sini URL Web App Apps Script setelah di-deploy (lihat panduan yang
 // menyertai file ini). Selama masih kosong, aplikasi otomatis memakai
 // penyimpanan demo bawaan (window.storage) seperti sebelumnya — tidak akan rusak.
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbymRH13LliJQMnT2Ys0O2tbZ31NSWwixV03IckRr8YYqtpk1A1Ib35tekzPpX4Z7e9G/exec";
+const APPS_SCRIPT_URL = "";
 
 const hasBackend = () => APPS_SCRIPT_URL.trim().length > 0;
 
-async function sheetsGet(action) {
-  const res = await fetch(`${APPS_SCRIPT_URL}?action=${action}`);
-  const data = await res.json();
+// Parse aman: baca sebagai teks dulu, baru coba JSON.parse. Kalau Apps Script
+// mengembalikan halaman HTML (mis. error internal tak tertangani, atau kuota
+// harian Apps Script terlampaui), pesan errornya jadi jelas — bukan crash
+// kriptik "Unexpected token '<'".
+async function parseSheetsResponse(res) {
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(
+      "Respons server bukan JSON (kemungkinan error internal Apps Script atau kuota harian terlampaui). Cek log di Apps Script → Executions."
+    );
+  }
   if (data && data.error) throw new Error(data.error);
   return data;
+}
+
+async function sheetsGet(action) {
+  const res = await fetch(`${APPS_SCRIPT_URL}?action=${action}`);
+  return parseSheetsResponse(res);
 }
 
 // Dikirim sebagai text/plain (bukan application/json) supaya browser tidak
@@ -233,9 +257,24 @@ async function sheetsPost(action, payload) {
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ action, ...payload }),
   });
-  const data = await res.json();
-  if (data && data.error) throw new Error(data.error);
-  return data;
+  return parseSheetsResponse(res);
+}
+
+// Menyimpan perubahan password secara permanen: kalau sudah terhubung ke Google
+// Sheets, disimpan di sheet "Users" (lewat Apps Script, aman karena sheet ini
+// tidak perlu dibagikan ke siapa pun — Apps Script selalu berjalan atas nama
+// pemilik). Kalau belum terhubung (mode demo), disimpan di window.storage.
+async function persistPasswordOverride(nextUsers, username, newPassword) {
+  if (hasBackend()) {
+    await sheetsPost("setUserPassword", { username, password: newPassword });
+    return;
+  }
+  const overrides = {};
+  nextUsers.forEach((u) => {
+    const def = DEFAULT_USERS.find((d) => d.username === u.username);
+    if (def && u.password !== def.password) overrides[u.username] = u.password;
+  });
+  await saveKey("ltt:password_overrides", overrides);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1002,8 +1041,91 @@ function TargetManager({ targets, onAdd, onUpdate, onDelete }) {
 }
 
 /* ---------------------------------------------------------------------- */
-/* Tabulasi (tabel data mentah): per kabupaten & rekap penuh provinsi     */
+/* Kelola Akun (khusus provinsi): reset password admin kabupaten          */
 /* ---------------------------------------------------------------------- */
+
+function ResetPasswordModal({ kabupaten, onClose, onSave }) {
+  const [newPassword, setNewPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (newPassword.length < 6) { setError("Password baru minimal 6 karakter."); return; }
+    if (newPassword !== confirm) { setError("Konfirmasi password tidak cocok."); return; }
+    setError("");
+    onSave(newPassword);
+    setSuccess(true);
+    setTimeout(onClose, 1200);
+  };
+
+  return (
+    <ModalShell title={`Reset Password — ${shortName(kabupaten.kabupatenName)}`} onClose={onClose}>
+      {success ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, color: COLORS.leaf, fontSize: 14, padding: "8px 0" }}>
+          <Check size={17} /> Password berhasil direset.
+        </div>
+      ) : (
+        <form onSubmit={submit}>
+          <div style={{ fontSize: 12.5, color: COLORS.inkSoft, marginBottom: 14 }}>
+            Username: <strong style={{ color: COLORS.ink, fontFamily: "'IBM Plex Mono', monospace" }}>{kabupaten.username}</strong>
+          </div>
+          <label style={labelStyle}>Password Baru</label>
+          <input type="password" style={{ ...inputStyle, marginBottom: 12 }} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Minimal 6 karakter" autoFocus />
+          <label style={labelStyle}>Konfirmasi Password Baru</label>
+          <input type="password" style={inputStyle} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          {error && <div style={{ color: COLORS.clay, fontSize: 12.5, marginTop: 10 }}>{error}</div>}
+          <button type="submit" style={primaryBtn}><KeyRound size={16} /> Simpan Password Baru</button>
+        </form>
+      )}
+    </ModalShell>
+  );
+}
+
+function KelolaAkun({ users, onResetPassword }) {
+  const [resettingUser, setResettingUser] = useState(null);
+
+  const kabupatenUsers = KABUPATEN_LIST.map((k) => {
+    const u = users.find((x) => x.username === k.slug) || {};
+    return { kabupatenName: k.name, username: k.slug, password: u.password };
+  });
+
+  return (
+    <div>
+      <Card style={{ padding: 24 }}>
+        <SectionLabel icon={Users}>Kelola Akun Admin Kabupaten/Kota</SectionLabel>
+        <div style={{ fontSize: 13, color: COLORS.inkSoft, marginBottom: 16 }}>
+          Admin provinsi tidak bisa melihat password admin kabupaten yang sudah diubah (demi keamanan) — tapi bisa mengatur ulang (reset) ke password baru kalau admin kabupaten lupa password mereka.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {kabupatenUsers.map((k) => (
+            <div key={k.username} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: COLORS.bgAlt, borderRadius: 9 }}>
+              <div>
+                <div style={{ fontWeight: 600, color: COLORS.ink, fontSize: 13 }}>{shortName(k.kabupatenName)}</div>
+                <div style={{ color: COLORS.inkSoft, fontSize: 11.5, fontFamily: "'IBM Plex Mono', monospace" }}>username: {k.username}</div>
+              </div>
+              <button
+                onClick={() => setResettingUser(k)}
+                style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "7px 11px", fontSize: 12, color: COLORS.ink, cursor: "pointer" }}
+              >
+                <KeyRound size={13} /> Reset Password
+              </button>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {resettingUser && (
+        <ResetPasswordModal
+          kabupaten={resettingUser}
+          onClose={() => setResettingUser(null)}
+          onSave={(newPassword) => onResetPassword(resettingUser.username, newPassword)}
+        />
+      )}
+    </div>
+  );
+}
 
 function downloadCSV(filename, headers, rows) {
   const escapeCell = (v) => {
@@ -1034,7 +1156,7 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
   const todayStr = new Date().toISOString().slice(0, 10);
   const [selectedDate, setSelectedDate] = useState(() => {
     if (!records || records.length === 0) return todayStr;
-    const maxDate = records.reduce((max, r) => (r.tanggal > max ? r.tanggal : max), records[0].tanggal);
+    const maxDate = records.reduce((max, r) => (dateOnly(r.tanggal) > max ? dateOnly(r.tanggal) : max), dateOnly(records[0].tanggal));
     return maxDate < todayStr ? maxDate : todayStr;
   });
 
@@ -1113,7 +1235,7 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
 
   // --- Data untuk sub-tab Harian ---
   const entriesOnDate = useMemo(
-    () => records.filter((r) => r.tanggal === selectedDate).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    () => records.filter((r) => dateOnly(r.tanggal) === selectedDate).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
     [records, selectedDate]
   );
 
@@ -1132,7 +1254,7 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
     return Array.from({ length: daysInSelMonth }, (_, i) => {
       const d = i + 1;
       const dateStr = `${selYear}-${String(selMonth).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-      const dayRecords = records.filter((r) => r.tanggal === dateStr);
+      const dayRecords = records.filter((r) => dateOnly(r.tanggal) === dateStr);
       return {
         tgl: d,
         dateStr,
@@ -1626,13 +1748,28 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      // Akun login tetap ada dari kode (tidak disimpan di Sheets demi keamanan —
-      // lihat catatan di panduan), tapi kalau ada password yang pernah diubah
-      // pengguna, terapkan di atasnya supaya perubahan password tetap berlaku.
+      // Akun login dasarnya tetap dari kode (username/role/kabupaten tidak
+      // disimpan di Sheets demi kesederhanaan), tapi kalau ada password yang
+      // pernah diubah/direset, terapkan override-nya supaya perubahan itu tetap
+      // berlaku. Kalau sudah terhubung ke Google Sheets, override diambil dari
+      // sheet "Users"; kalau belum, dari penyimpanan demo (window.storage).
       setUsers(DEFAULT_USERS);
-      const overrides = await loadKey("ltt:password_overrides", null);
-      if (overrides) {
-        setUsers(DEFAULT_USERS.map((u) => (overrides[u.username] ? { ...u, password: overrides[u.username] } : u)));
+      if (hasBackend()) {
+        try {
+          const usersFromSheet = await sheetsGet("getUsers");
+          if (Array.isArray(usersFromSheet) && usersFromSheet.length > 0) {
+            const overrideMap = {};
+            usersFromSheet.forEach((u) => { if (u.username && u.password) overrideMap[u.username] = u.password; });
+            setUsers(DEFAULT_USERS.map((u) => (overrideMap[u.username] ? { ...u, password: overrideMap[u.username] } : u)));
+          }
+        } catch {
+          // Sheet "Users" mungkin belum dibuat — biarkan pakai DEFAULT_USERS supaya login tetap jalan.
+        }
+      } else {
+        const overrides = await loadKey("ltt:password_overrides", null);
+        if (overrides) {
+          setUsers(DEFAULT_USERS.map((u) => (overrides[u.username] ? { ...u, password: overrides[u.username] } : u)));
+        }
       }
 
       if (hasBackend()) {
@@ -1764,18 +1901,25 @@ export default function App() {
   }, []);
 
   const changePassword = useCallback(async (newPassword) => {
-    setUsers((prev) => {
-      const next = prev.map((u) => (u.username === user.username ? { ...u, password: newPassword } : u));
-      const overrides = {};
-      next.forEach((u) => {
-        const def = DEFAULT_USERS.find((d) => d.username === u.username);
-        if (def && u.password !== def.password) overrides[u.username] = u.password;
-      });
-      saveKey("ltt:password_overrides", overrides);
-      return next;
-    });
+    const nextUsers = users.map((u) => (u.username === user.username ? { ...u, password: newPassword } : u));
+    setUsers(nextUsers);
     setUser((prev) => (prev ? { ...prev, password: newPassword } : prev));
-  }, [user]);
+    try {
+      await persistPasswordOverride(nextUsers, user.username, newPassword);
+    } catch (err) {
+      setBackendError(String(err.message || err));
+    }
+  }, [user, users]);
+
+  const resetKabupatenPassword = useCallback(async (username, newPassword) => {
+    const nextUsers = users.map((u) => (u.username === username ? { ...u, password: newPassword } : u));
+    setUsers(nextUsers);
+    try {
+      await persistPasswordOverride(nextUsers, username, newPassword);
+    } catch (err) {
+      setBackendError(String(err.message || err));
+    }
+  }, [users]);
 
   if (!user) {
     return (
@@ -1790,7 +1934,10 @@ export default function App() {
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "input", label: "Input Data", icon: ClipboardPlus },
     { key: "tabulasi", label: "Tabulasi", icon: Table2 },
-    ...(user.role === "provinsi" ? [{ key: "target", label: "Kelola Target", icon: TargetIcon }] : []),
+    ...(user.role === "provinsi" ? [
+      { key: "target", label: "Kelola Target", icon: TargetIcon },
+      { key: "akun", label: "Kelola Akun", icon: Users },
+    ] : []),
   ];
 
   const HEADER_H = 58;
@@ -1946,6 +2093,7 @@ export default function App() {
             {tab === "input" && <InputForm user={user} onSubmit={addRecord} records={records} onUpdate={updateRecord} onDelete={deleteRecord} />}
             {tab === "tabulasi" && <Tabulasi records={records} targets={targets} onUpdateRecord={updateRecord} onDeleteRecord={deleteRecord} />}
             {tab === "target" && user.role === "provinsi" && <TargetManager targets={targets} onAdd={addTarget} onUpdate={updateTarget} onDelete={deleteTarget} />}
+            {tab === "akun" && user.role === "provinsi" && <KelolaAkun users={users} onResetPassword={resetKabupatenPassword} />}
           </main>
         </div>
       </div>
