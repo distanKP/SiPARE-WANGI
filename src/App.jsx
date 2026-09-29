@@ -20,20 +20,20 @@ import "leaflet/dist/leaflet.css";
 const NTT_LOGO_URL = "https://commons.wikimedia.org/wiki/Special:FilePath/Coat_of_arms_of_East_Nusa_Tenggara.svg";
 
 const COLORS = {
-  bg: "#F6F1E4",        // dry-season parchment
-  bgAlt: "#EFE7D2",
-  ink: "#2B2418",        // soil-dark text
-  inkSoft: "#6B6152",
-  card: "#FFFDF7",
-  line: "#DFD5BA",
-  gold: "#C99A2E",        // savanna gold
-  goldSoft: "#EBD9A5",
-  teal: "#1F6F6B",        // irrigation teal
-  tealSoft: "#CFE3E1",
-  clay: "#AD4E2C",        // clay / gap-to-target
-  claySoft: "#EFCFC0",
-  leaf: "#4C7A3D",        // padi green
-  leafSoft: "#D8E4CE",
+  bg: "#F8FAFC",         // off-white / cool gray light
+  bgAlt: "#F1F5F9",       // light slate tint (alt rows, sidebar)
+  ink: "#0F172A",         // slate dark (headings, numbers)
+  inkSoft: "#64748B",     // muted slate gray (secondary text/labels)
+  card: "#FFFFFF",        // pure white
+  line: "#E2E8F0",        // thin card/border line
+  gold: "#F59E0B",        // warm amber (warning / progress accent)
+  goldSoft: "#FEF3C7",
+  teal: "#0D9488",        // emerald/forest modern (primary accent)
+  tealSoft: "#CCFBF1",
+  clay: "#E11D48",        // coral/rose (critical status accent)
+  claySoft: "#FFE4E6",
+  leaf: "#16A34A",        // success green (distinct from primary teal)
+  leafSoft: "#DCFCE7",
 };
 
 const KOMODITAS_LIST = [
@@ -2006,7 +2006,7 @@ export default function App() {
           <img src={NTT_LOGO_URL} alt="Lambang Provinsi NTT" style={{ width: 30, height: 30, objectFit: "contain", flexShrink: 0 }} />
           <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
             <span style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600, whiteSpace: "nowrap" }}>SiPARE WANGI</span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 8.5, padding: "1px 5px", borderRadius: 5, background: hasBackend() ? COLORS.leafSoft : COLORS.goldSoft, color: hasBackend() ? COLORS.leaf : "#8a6a12", fontWeight: 600, width: "fit-content", marginTop: 2 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 8.5, padding: "1px 5px", borderRadius: 5, background: hasBackend() ? COLORS.leafSoft : COLORS.goldSoft, color: hasBackend() ? COLORS.leaf : "#92400E", fontWeight: 600, width: "fit-content", marginTop: 2 }}>
               <span style={{ width: 4, height: 4, borderRadius: "50%", background: "currentColor" }} />
               {hasBackend() ? "Google Sheets" : "Mode Demo"}
             </span>
@@ -2125,7 +2125,7 @@ export default function App() {
               </div>
             )}
             {backendError && (
-              <div style={{ background: COLORS.claySoft, color: "#7a2e14", borderRadius: 9, padding: "10px 14px", fontSize: 12.5, marginBottom: 14 }}>
+              <div style={{ background: COLORS.claySoft, color: "#9F1239", borderRadius: 9, padding: "10px 14px", fontSize: 12.5, marginBottom: 14 }}>
                 Gagal terhubung ke Google Sheets: {backendError}. Periksa kembali APPS_SCRIPT_URL dan pengaturan akses deployment ("Anyone").
               </div>
             )}
