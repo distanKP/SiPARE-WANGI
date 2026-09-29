@@ -221,7 +221,7 @@ function seedTargets() {
 // TEMPEL di sini URL Web App Apps Script setelah di-deploy (lihat panduan yang
 // menyertai file ini). Selama masih kosong, aplikasi otomatis memakai
 // penyimpanan demo bawaan (window.storage) seperti sebelumnya — tidak akan rusak.
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbymRH13LliJQMnT2Ys0O2tbZ31NSWwixV03IckRr8YYqtpk1A1Ib35tekzPpX4Z7e9G/exec";
+const APPS_SCRIPT_URL = "";
 
 const hasBackend = () => APPS_SCRIPT_URL.trim().length > 0;
 
@@ -719,7 +719,7 @@ function Dashboard({ user, records, targets }) {
               <CartesianGrid stroke={COLORS.line} vertical={false} />
               <XAxis dataKey="bulan" tick={{ fontSize: 11, fill: COLORS.inkSoft }} axisLine={{ stroke: COLORS.line }} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: COLORS.inkSoft }} axisLine={false} tickLine={false} width={40} />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} />
               <Area type="monotone" dataKey="Akumulasi" stroke={COLORS.teal} strokeWidth={2} fill="url(#fillTrend)" />
             </AreaChart>
           </ResponsiveContainer>
@@ -735,7 +735,7 @@ function Dashboard({ user, records, targets }) {
               <CartesianGrid stroke={COLORS.line} horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 11, fill: COLORS.inkSoft }} axisLine={{ stroke: COLORS.line }} tickLine={false} />
               <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11, fill: COLORS.ink }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="Target" fill={COLORS.goldSoft} radius={[0, 4, 4, 0]} />
               <Bar dataKey="Capaian" fill={COLORS.teal} radius={[0, 4, 4, 0]} />
@@ -751,7 +751,7 @@ function Dashboard({ user, records, targets }) {
               <CartesianGrid stroke={COLORS.line} vertical={false} />
               <XAxis dataKey="name" tick={{ fontSize: 9.5, fill: COLORS.inkSoft }} axisLine={{ stroke: COLORS.line }} tickLine={false} interval={0} angle={-25} textAnchor="end" height={70} />
               <YAxis tick={{ fontSize: 11, fill: COLORS.inkSoft }} axisLine={false} tickLine={false} width={36} />
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} />
               <Bar dataKey="value" radius={[5, 5, 0, 0]}>
                 {komoditasData.map((d) => <Cell key={d.name} fill={KOMODITAS_COLORS[d.name]} />)}
               </Bar>
@@ -932,8 +932,12 @@ function TargetManager({ targets, onAdd, onUpdate, onDelete }) {
   const [bulan, setBulan] = useState(CURRENT_MONTH);
   const [targetHa, setTargetHa] = useState("");
   const [saved, setSaved] = useState(false);
-  const [editingTarget, setEditingTarget] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  // Filter untuk daftar "semua kabupaten/kota" di sebelah kanan
+  const [filterBulan, setFilterBulan] = useState(CURRENT_MONTH);
+  const [filterKomoditas, setFilterKomoditas] = useState(KOMODITAS_LIST[0]);
+  const [rowValues, setRowValues] = useState({}); // draft input per kabupaten selama diedit
 
   const submit = (e) => {
     e.preventDefault();
@@ -950,13 +954,30 @@ function TargetManager({ targets, onAdd, onUpdate, onDelete }) {
     setTimeout(() => setSaved(false), 2200);
   };
 
-  const recentTargets = [...targets]
-    .filter((t) => !t.id.startsWith("seedt-"))
-    .sort((a, b) => b.id.localeCompare(a.id))
-    .slice(0, 8);
+  const allRows = KABUPATEN_LIST.map((k) => {
+    const existing = targets.find((t) => t.kabupatenName === k.name && t.komoditas === filterKomoditas && t.bulan === filterBulan) || null;
+    return { kabupatenName: k.name, slug: k.slug, existing };
+  });
+
+  const saveRow = (row) => {
+    const raw = rowValues[row.slug];
+    if (raw === undefined || raw === "") return;
+    const val = parseFloat(raw);
+    if (isNaN(val)) return;
+    if (row.existing) {
+      onUpdate(row.existing.id, { targetHa: val });
+    } else {
+      onAdd({ id: `t-${Date.now()}-${row.slug}`, kabupatenName: row.kabupatenName, komoditas: filterKomoditas, bulan: filterBulan, targetHa: val });
+    }
+    setRowValues((prev) => {
+      const next = { ...prev };
+      delete next[row.slug];
+      return next;
+    });
+  };
 
   return (
-    <div className="grid2" style={{ display: "grid", gridTemplateColumns: "0.85fr 1.15fr", gap: 20 }}>
+    <div className="grid2" style={{ display: "grid", gridTemplateColumns: "0.75fr 1.25fr", gap: 20 }}>
       <Card style={{ padding: 24 }}>
         <SectionLabel icon={TargetIcon}>Tetapkan Target Bulanan</SectionLabel>
         <form onSubmit={submit}>
@@ -995,47 +1016,66 @@ function TargetManager({ targets, onAdd, onUpdate, onDelete }) {
       </Card>
 
       <Card style={{ padding: 24 }}>
-        <SectionLabel icon={ClipboardPlus}>Target Terbaru Ditetapkan</SectionLabel>
-        {recentTargets.length === 0 ? (
-          <div style={{ color: COLORS.inkSoft, fontSize: 13.5 }}>Belum ada target baru yang ditambahkan secara manual.</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {recentTargets.map((t) => (
-              <div key={t.id} style={{ padding: "10px 12px", background: COLORS.bgAlt, borderRadius: 9, fontSize: 13 }}>
-                {confirmDeleteId === t.id ? (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+          <SectionLabel icon={ClipboardPlus}>Semua Kabupaten/Kota</SectionLabel>
+          <div style={{ display: "flex", gap: 8 }}>
+            <select style={{ ...selectStyle, fontSize: 12.5, padding: "7px 10px" }} value={filterKomoditas} onChange={(e) => { setFilterKomoditas(e.target.value); setRowValues({}); }}>
+              {KOMODITAS_LIST.map((k) => <option key={k} value={k}>{k}</option>)}
+            </select>
+            <select style={{ ...selectStyle, fontSize: 12.5, padding: "7px 10px" }} value={filterBulan} onChange={(e) => { setFilterBulan(parseInt(e.target.value, 10)); setRowValues({}); }}>
+              {MONTH_NAMES.slice(0, 12).map((m, i) => <option key={i} value={i + 1}>{m} {YEAR}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 12, color: COLORS.inkSoft, marginBottom: 12 }}>
+          Menampilkan target <strong>{filterKomoditas}</strong> untuk <strong>{MONTH_NAMES[filterBulan - 1]} {YEAR}</strong> — isi atau ubah langsung, lalu klik ikon simpan.
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 480, overflowY: "auto" }}>
+          {allRows.map((row) => {
+            const value = rowValues[row.slug] !== undefined ? rowValues[row.slug] : (row.existing ? String(row.existing.targetHa) : "");
+            const dirty = rowValues[row.slug] !== undefined;
+            return (
+              <div key={row.slug} style={{ padding: "8px 10px", background: COLORS.bgAlt, borderRadius: 9 }}>
+                {confirmDeleteId === row.existing?.id ? (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <span style={{ color: COLORS.clay, fontSize: 12.5 }}>Hapus target ini?</span>
+                    <span style={{ color: COLORS.clay, fontSize: 12.5 }}>Hapus target {shortName(row.kabupatenName)}?</span>
                     <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => { onDelete(t.id); setConfirmDeleteId(null); }} style={smallDangerBtn}>Ya, Hapus</button>
+                      <button onClick={() => { onDelete(row.existing.id); setConfirmDeleteId(null); }} style={smallDangerBtn}>Ya, Hapus</button>
                       <button onClick={() => setConfirmDeleteId(null)} style={smallGhostBtn}>Batal</button>
                     </div>
                   </div>
                 ) : (
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontWeight: 600, color: COLORS.ink }}>{shortName(t.kabupatenName)}</div>
-                      <div style={{ color: COLORS.inkSoft, fontSize: 12 }}>{t.komoditas} · {MONTH_NAMES[t.bulan - 1]} {YEAR}</div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600, color: COLORS.gold }}>{fmtHa(t.targetHa)} Ha</div>
-                      <button onClick={() => setEditingTarget(t)} title="Edit" style={iconBtn}><Pencil size={14} /></button>
-                      <button onClick={() => setConfirmDeleteId(t.id)} title="Hapus" style={iconBtn}><Trash2 size={14} color={COLORS.clay} /></button>
-                    </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ flex: 1, fontSize: 12.5, fontWeight: 500, color: COLORS.ink }}>{shortName(row.kabupatenName)}</div>
+                    {!row.existing && !dirty && (
+                      <span style={{ fontSize: 10.5, color: COLORS.inkSoft, fontStyle: "italic" }}>belum ditetapkan</span>
+                    )}
+                    <input
+                      type="number" step="0.01" min="0" placeholder="0.00" value={value}
+                      onChange={(e) => setRowValues((prev) => ({ ...prev, [row.slug]: e.target.value }))}
+                      style={{ width: 90, padding: "6px 8px", borderRadius: 7, border: `1px solid ${dirty ? COLORS.gold : COLORS.line}`, fontSize: 12.5, fontFamily: "'IBM Plex Mono', monospace", textAlign: "right" }}
+                    />
+                    <span style={{ fontSize: 11, color: COLORS.inkSoft }}>Ha</span>
+                    <button
+                      onClick={() => saveRow(row)}
+                      disabled={!dirty}
+                      title="Simpan"
+                      style={{ ...iconBtn, color: dirty ? COLORS.leaf : COLORS.line, cursor: dirty ? "pointer" : "default" }}
+                    >
+                      <Save size={14} />
+                    </button>
+                    {row.existing && (
+                      <button onClick={() => setConfirmDeleteId(row.existing.id)} title="Hapus" style={iconBtn}><Trash2 size={14} color={COLORS.clay} /></button>
+                    )}
                   </div>
                 )}
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
       </Card>
-
-      {editingTarget && (
-        <EditTargetModal
-          target={editingTarget}
-          onClose={() => setEditingTarget(null)}
-          onSave={(updates) => { onUpdate(editingTarget.id, updates); setEditingTarget(null); }}
-        />
-      )}
     </div>
   );
 }
@@ -1470,7 +1510,7 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
                   <CartesianGrid stroke={COLORS.line} vertical={false} />
                   <XAxis dataKey="tgl" tick={{ fontSize: 10, fill: COLORS.inkSoft }} axisLine={{ stroke: COLORS.line }} tickLine={false} interval={1} />
                   <YAxis tick={{ fontSize: 11, fill: COLORS.inkSoft }} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
-                  <Tooltip contentStyle={tooltipStyle} labelFormatter={(v) => `Tanggal ${v}`} formatter={(val, name) => [val, name === "jumlahEntri" ? "Jumlah Entri" : name]} />
+                  <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} labelFormatter={(v) => `Tanggal ${v}`} formatter={(val, name) => [val, name === "jumlahEntri" ? "Jumlah Entri" : name]} />
                   <Bar dataKey="jumlahEntri" radius={[4, 4, 0, 0]}>
                     {entriesPerDay.map((d) => (
                       <Cell key={d.tgl} fill={d.dateStr === selectedDate ? COLORS.teal : COLORS.tealSoft} />
