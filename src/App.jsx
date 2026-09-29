@@ -2104,8 +2104,8 @@ export default function App() {
                   style={{
                     display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
                     borderRadius: 9, border: "none", cursor: "pointer", fontSize: 13.5, fontWeight: 500, width: "100%",
-                    background: tab === item.key ? COLORS.teal : "transparent",
-                    color: tab === item.key ? "#fff" : COLORS.inkSoft,
+                    background: tab === item.key ? "rgba(13, 148, 136, 0.1)" : "transparent",
+                    color: tab === item.key ? "#0D9488" : "#475569",
                   }}
                 >
                   <item.icon size={17} strokeWidth={2} />
