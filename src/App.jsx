@@ -1187,7 +1187,9 @@ function downloadCSV(filename, headers, rows) {
 const cellNum = { fontFamily: "'IBM Plex Mono', monospace", fontSize: 12.5, textAlign: "right", padding: "8px 10px" };
 const cellHead = { fontSize: 11, fontWeight: 600, color: COLORS.inkSoft, textAlign: "right", padding: "8px 10px", whiteSpace: "nowrap" };
 
-function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
+function Tabulasi({ user, records, targets, onUpdateRecord, onDeleteRecord }) {
+  const isProvinsi = user.role === "provinsi";
+  const visibleKabupaten = isProvinsi ? KABUPATEN_LIST : KABUPATEN_LIST.filter((k) => k.name === user.kabupatenName);
   const [subTab, setSubTab] = useState("kabupaten");
   const [mode, setMode] = useState("akumulasi");
   const [month, setMonth] = useState(CURRENT_MONTH);
@@ -1206,7 +1208,7 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
   );
 
   const kabupatenRows = useMemo(() => {
-    return KABUPATEN_LIST.map((k) => {
+    return visibleKabupaten.map((k) => {
       const row = { name: k.name };
       let total = 0;
       KOMODITAS_LIST.forEach((kom) => {
@@ -1224,7 +1226,7 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
       row.pct = target > 0 ? Math.round((row.total / target) * 100) : null;
       return row;
     });
-  }, [records, targets, monthsInRange]);
+  }, [records, targets, monthsInRange, visibleKabupaten]);
 
   const provinsiTotalRow = useMemo(() => {
     const row = { name: "TOTAL PROVINSI NTT" };
@@ -1261,7 +1263,7 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
 
   const exportKabupaten = () => {
     const headers = ["Kabupaten/Kota", ...KOMODITAS_LIST, "Total (Ha)", "Target (Ha)", "Capaian (%)"];
-    const rows = [...kabupatenRows, provinsiTotalRow].map((r) => [
+    const rows = (isProvinsi ? [...kabupatenRows, provinsiTotalRow] : kabupatenRows).map((r) => [
       r.name, ...KOMODITAS_LIST.map((k) => r[k]), r.total, r.target, r.pct ?? "-",
     ]);
     downloadCSV(`tabulasi-kabupaten-${mode}-bulan${month}.csv`, headers, rows);
@@ -1275,8 +1277,11 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
 
   // --- Data untuk sub-tab Harian ---
   const entriesOnDate = useMemo(
-    () => records.filter((r) => dateOnly(r.tanggal) === selectedDate).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-    [records, selectedDate]
+    () => records
+      .filter((r) => dateOnly(r.tanggal) === selectedDate)
+      .filter((r) => isProvinsi || r.kabupatenName === user.kabupatenName)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    [records, selectedDate, isProvinsi, user.kabupatenName]
   );
 
   const kepatuhanList = useMemo(() => {
@@ -1294,7 +1299,9 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
     return Array.from({ length: daysInSelMonth }, (_, i) => {
       const d = i + 1;
       const dateStr = `${selYear}-${String(selMonth).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-      const dayRecords = records.filter((r) => dateOnly(r.tanggal) === dateStr);
+      const dayRecords = records
+        .filter((r) => dateOnly(r.tanggal) === dateStr)
+        .filter((r) => isProvinsi || r.kabupatenName === user.kabupatenName);
       return {
         tgl: d,
         dateStr,
@@ -1302,7 +1309,7 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
         totalLuas: Math.round(dayRecords.reduce((s, r) => s + r.luas, 0) * 100) / 100,
       };
     });
-  }, [records, selYear, selMonth, daysInSelMonth]);
+  }, [records, selYear, selMonth, daysInSelMonth, isProvinsi, user.kabupatenName]);
 
   const totalLuasHariIni = Math.round(entriesOnDate.reduce((s, r) => s + r.luas, 0) * 100) / 100;
 
@@ -1336,7 +1343,7 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
         <Card style={{ padding: 20 }}>
           <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-end", gap: 14, marginBottom: 16 }}>
             <div>
-              <SectionLabel icon={Table2}>Tabulasi 22 Kabupaten/Kota se-NTT</SectionLabel>
+              <SectionLabel icon={Table2}>{isProvinsi ? "Tabulasi 22 Kabupaten/Kota se-NTT" : `Tabulasi ${shortName(user.kabupatenName)}`}</SectionLabel>
               <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                 <div style={{ display: "flex", gap: 6 }}>
                   {[["bulan", "Per Bulan"], ["akumulasi", "Akumulasi Jan–bulan ini"]].map(([v, l]) => (
@@ -1389,13 +1396,15 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
                     <td style={{ ...cellNum, color: pctColor(r.pct), fontWeight: 600 }}>{r.pct === null ? "–" : `${r.pct}%`}</td>
                   </tr>
                 ))}
-                <tr style={{ borderTop: `2px solid ${COLORS.line}`, background: COLORS.tealSoft }}>
-                  <td style={{ padding: "9px 10px", fontSize: 12.5, fontWeight: 700 }}>{provinsiTotalRow.name}</td>
-                  {KOMODITAS_LIST.map((k) => <td key={k} style={{ ...cellNum, fontWeight: 700 }}>{fmtHa(provinsiTotalRow[k])}</td>)}
-                  <td style={{ ...cellNum, fontWeight: 700 }}>{fmtHa(provinsiTotalRow.total)}</td>
-                  <td style={{ ...cellNum, fontWeight: 700 }}>{fmtHa(provinsiTotalRow.target)}</td>
-                  <td style={{ ...cellNum, color: pctColor(provinsiTotalRow.pct), fontWeight: 700 }}>{provinsiTotalRow.pct === null ? "–" : `${provinsiTotalRow.pct}%`}</td>
-                </tr>
+                {isProvinsi && (
+                  <tr style={{ borderTop: `2px solid ${COLORS.line}`, background: COLORS.tealSoft }}>
+                    <td style={{ padding: "9px 10px", fontSize: 12.5, fontWeight: 700 }}>{provinsiTotalRow.name}</td>
+                    {KOMODITAS_LIST.map((k) => <td key={k} style={{ ...cellNum, fontWeight: 700 }}>{fmtHa(provinsiTotalRow[k])}</td>)}
+                    <td style={{ ...cellNum, fontWeight: 700 }}>{fmtHa(provinsiTotalRow.total)}</td>
+                    <td style={{ ...cellNum, fontWeight: 700 }}>{fmtHa(provinsiTotalRow.target)}</td>
+                    <td style={{ ...cellNum, color: pctColor(provinsiTotalRow.pct), fontWeight: 700 }}>{provinsiTotalRow.pct === null ? "–" : `${provinsiTotalRow.pct}%`}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1471,8 +1480,14 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 14 }}>
               <Card style={{ padding: 16 }}>
-                <div style={kpiLabel}>Kabupaten/Kota Lapor</div>
-                <div style={kpiValue}>{jumlahSudahLapor}<span style={kpiUnit}> / {KABUPATEN_LIST.length}</span></div>
+                <div style={kpiLabel}>{isProvinsi ? "Kabupaten/Kota Lapor" : "Status Hari Ini"}</div>
+                {isProvinsi ? (
+                  <div style={kpiValue}>{jumlahSudahLapor}<span style={kpiUnit}> / {KABUPATEN_LIST.length}</span></div>
+                ) : (
+                  <div style={{ ...kpiValue, fontSize: 20, color: entriesOnDate.length > 0 ? COLORS.leaf : COLORS.inkSoft }}>
+                    {entriesOnDate.length > 0 ? "Sudah Lapor" : "Belum Lapor"}
+                  </div>
+                )}
               </Card>
               <Card style={{ padding: 16 }}>
                 <div style={kpiLabel}>Total Entri Hari Ini</div>
@@ -1485,23 +1500,25 @@ function Tabulasi({ records, targets, onUpdateRecord, onDeleteRecord }) {
             </div>
           </Card>
 
-          <div className="grid2" style={{ display: "grid", gridTemplateColumns: "0.85fr 1.15fr", gap: 20, marginBottom: 20 }}>
-            <Card style={{ padding: 20 }}>
-              <SectionLabel icon={CheckCircle2}>Status Kepatuhan Lapor — {selectedDate}</SectionLabel>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 340, overflowY: "auto" }}>
-                {kepatuhanList.map((k) => (
-                  <div key={k.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 8, background: k.sudahLapor ? COLORS.leafSoft : COLORS.bgAlt }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      {k.sudahLapor ? <CheckCircle2 size={15} color={COLORS.leaf} /> : <Circle size={15} color={COLORS.inkSoft} />}
-                      <span style={{ fontSize: 12.5, color: COLORS.ink }}>{shortName(k.name)}</span>
+          <div className={isProvinsi ? "grid2" : ""} style={{ display: "grid", gridTemplateColumns: isProvinsi ? "0.85fr 1.15fr" : "1fr", gap: 20, marginBottom: 20 }}>
+            {isProvinsi && (
+              <Card style={{ padding: 20 }}>
+                <SectionLabel icon={CheckCircle2}>Status Kepatuhan Lapor — {selectedDate}</SectionLabel>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 340, overflowY: "auto" }}>
+                  {kepatuhanList.map((k) => (
+                    <div key={k.name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 8, background: k.sudahLapor ? COLORS.leafSoft : COLORS.bgAlt }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {k.sudahLapor ? <CheckCircle2 size={15} color={COLORS.leaf} /> : <Circle size={15} color={COLORS.inkSoft} />}
+                        <span style={{ fontSize: 12.5, color: COLORS.ink }}>{shortName(k.name)}</span>
+                      </div>
+                      <span style={{ fontSize: 11.5, color: COLORS.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+                        {k.sudahLapor ? `${k.jumlahEntri} entri` : "belum lapor"}
+                      </span>
                     </div>
-                    <span style={{ fontSize: 11.5, color: COLORS.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
-                      {k.sudahLapor ? `${k.jumlahEntri} entri` : "belum lapor"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </Card>
+                  ))}
+                </div>
+              </Card>
+            )}
 
             <Card style={{ padding: 20 }}>
               <SectionLabel icon={CalendarDays}>Jumlah Entri per Hari — {MONTH_NAMES[selMonth - 1]} {selYear}</SectionLabel>
@@ -2131,7 +2148,7 @@ export default function App() {
             )}
             {tab === "dashboard" && <Dashboard user={user} records={records} targets={targets} />}
             {tab === "input" && <InputForm user={user} onSubmit={addRecord} records={records} onUpdate={updateRecord} onDelete={deleteRecord} />}
-            {tab === "tabulasi" && <Tabulasi records={records} targets={targets} onUpdateRecord={updateRecord} onDeleteRecord={deleteRecord} />}
+            {tab === "tabulasi" && <Tabulasi user={user} records={records} targets={targets} onUpdateRecord={updateRecord} onDeleteRecord={deleteRecord} />}
             {tab === "target" && user.role === "provinsi" && <TargetManager targets={targets} onAdd={addTarget} onUpdate={updateTarget} onDelete={deleteTarget} />}
             {tab === "akun" && user.role === "provinsi" && <KelolaAkun users={users} onResetPassword={resetKabupatenPassword} />}
           </main>
