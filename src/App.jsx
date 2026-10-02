@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import {
   LogIn, LogOut, LayoutDashboard, ClipboardPlus, Target as TargetIcon,
-  MapPinned, Wheat, ChevronDown, Loader2, Plus, Info, X, Check, Table2, Download,
+  MapPinned, Wheat, ChevronDown, ChevronRight, Loader2, Plus, Info, X, Check, Table2, Download,
   Menu, CalendarDays, CheckCircle2, Circle, Clock, KeyRound, HelpCircle, Pencil, Trash2, Save, Users,
 } from "lucide-react";
 import { MapContainer, TileLayer, CircleMarker, Tooltip as LeafletTooltip } from "react-leaflet";
@@ -1201,11 +1201,28 @@ function Tabulasi({ user, records, targets, onUpdateRecord, onDeleteRecord }) {
     const maxDate = records.reduce((max, r) => (dateOnly(r.tanggal) > max ? dateOnly(r.tanggal) : max), dateOnly(records[0].tanggal));
     return maxDate < todayStr ? maxDate : todayStr;
   });
+  const [expandedKab, setExpandedKab] = useState(() => (!isProvinsi ? user.kabupatenName : null));
 
   const monthsInRange = useMemo(
     () => (mode === "akumulasi" ? Array.from({ length: month }, (_, i) => i + 1) : [month]),
     [mode, month]
   );
+
+  const kecamatanBreakdown = useMemo(() => {
+    const map = {};
+    visibleKabupaten.forEach((k) => {
+      const kecList = KECAMATAN_MAP[k.name] || [];
+      map[k.name] = kecList
+        .map((kec) => {
+          const total = records
+            .filter((r) => r.kabupatenName === k.name && r.kecamatan === kec && monthsInRange.includes(parseInt(r.tanggal.slice(5, 7), 10)))
+            .reduce((s, r) => s + r.luas, 0);
+          return { kecamatan: kec, total: Math.round(total * 100) / 100 };
+        })
+        .sort((a, b) => b.total - a.total);
+    });
+    return map;
+  }, [records, monthsInRange, visibleKabupaten]);
 
   const kabupatenRows = useMemo(() => {
     return visibleKabupaten.map((k) => {
@@ -1387,15 +1404,50 @@ function Tabulasi({ user, records, targets, onUpdateRecord, onDeleteRecord }) {
                 </tr>
               </thead>
               <tbody>
-                {kabupatenRows.map((r, i) => (
-                  <tr key={r.name} style={{ borderBottom: `1px solid ${COLORS.line}`, background: i % 2 ? COLORS.bgAlt : "transparent" }}>
-                    <td style={{ padding: "8px 10px", fontSize: 12.5, fontWeight: 500 }}>{shortName(r.name)}</td>
-                    {KOMODITAS_LIST.map((k) => <td key={k} style={cellNum}>{fmtHa(r[k])}</td>)}
-                    <td style={{ ...cellNum, fontWeight: 600 }}>{fmtHa(r.total)}</td>
-                    <td style={cellNum}>{fmtHa(r.target)}</td>
-                    <td style={{ ...cellNum, color: pctColor(r.pct), fontWeight: 600 }}>{r.pct === null ? "–" : `${r.pct}%`}</td>
-                  </tr>
-                ))}
+                {kabupatenRows.map((r, i) => {
+                  const isOpen = expandedKab === r.name;
+                  const kecRows = kecamatanBreakdown[r.name] || [];
+                  return (
+                    <React.Fragment key={r.name}>
+                      <tr style={{ borderBottom: isOpen ? "none" : `1px solid ${COLORS.line}`, background: i % 2 ? COLORS.bgAlt : "transparent" }}>
+                        <td style={{ padding: "8px 10px", fontSize: 12.5, fontWeight: 500 }}>
+                          <button
+                            onClick={() => setExpandedKab(isOpen ? null : r.name)}
+                            style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", cursor: "pointer", padding: 0, color: COLORS.ink, font: "inherit", fontWeight: 500 }}
+                          >
+                            {isOpen ? <ChevronDown size={14} color={COLORS.inkSoft} /> : <ChevronRight size={14} color={COLORS.inkSoft} />}
+                            {shortName(r.name)}
+                          </button>
+                        </td>
+                        {KOMODITAS_LIST.map((k) => <td key={k} style={cellNum}>{fmtHa(r[k])}</td>)}
+                        <td style={{ ...cellNum, fontWeight: 600 }}>{fmtHa(r.total)}</td>
+                        <td style={cellNum}>{fmtHa(r.target)}</td>
+                        <td style={{ ...cellNum, color: pctColor(r.pct), fontWeight: 600 }}>{r.pct === null ? "–" : `${r.pct}%`}</td>
+                      </tr>
+                      {isOpen && (
+                        <tr style={{ borderBottom: `1px solid ${COLORS.line}` }}>
+                          <td colSpan={KOMODITAS_LIST.length + 4} style={{ padding: "4px 10px 14px 32px", background: COLORS.bgAlt }}>
+                            <div style={{ fontSize: 10.5, fontWeight: 600, color: COLORS.inkSoft, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                              LTT per Kecamatan — {shortName(r.name)}
+                            </div>
+                            {kecRows.length === 0 ? (
+                              <div style={{ fontSize: 12, color: COLORS.inkSoft, fontStyle: "italic" }}>Belum ada data kecamatan untuk periode ini.</div>
+                            ) : (
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "4px 16px" }}>
+                                {kecRows.map((kr) => (
+                                  <div key={kr.kecamatan} style={{ display: "flex", justifyContent: "space-between", padding: "4px 8px", background: COLORS.card, borderRadius: 6, fontSize: 12 }}>
+                                    <span style={{ color: COLORS.ink }}>{kr.kecamatan}</span>
+                                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: kr.total > 0 ? COLORS.teal : COLORS.inkSoft, fontWeight: kr.total > 0 ? 600 : 400 }}>{fmtHa(kr.total)} Ha</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
                 {isProvinsi && (
                   <tr style={{ borderTop: `2px solid ${COLORS.line}`, background: COLORS.tealSoft }}>
                     <td style={{ padding: "9px 10px", fontSize: 12.5, fontWeight: 700 }}>{provinsiTotalRow.name}</td>
