@@ -1214,10 +1214,17 @@ function Tabulasi({ user, records, targets, onUpdateRecord, onDeleteRecord }) {
       const kecList = KECAMATAN_MAP[k.name] || [];
       map[k.name] = kecList
         .map((kec) => {
-          const total = records
-            .filter((r) => r.kabupatenName === k.name && r.kecamatan === kec && monthsInRange.includes(parseInt(r.tanggal.slice(5, 7), 10)))
-            .reduce((s, r) => s + r.luas, 0);
-          return { kecamatan: kec, total: Math.round(total * 100) / 100 };
+          const row = { kecamatan: kec };
+          let total = 0;
+          KOMODITAS_LIST.forEach((kom) => {
+            const val = records
+              .filter((r) => r.kabupatenName === k.name && r.kecamatan === kec && r.komoditas === kom && monthsInRange.includes(parseInt(r.tanggal.slice(5, 7), 10)))
+              .reduce((s, r) => s + r.luas, 0);
+            row[kom] = Math.round(val * 100) / 100;
+            total += val;
+          });
+          row.total = Math.round(total * 100) / 100;
+          return row;
         })
         .sort((a, b) => b.total - a.total);
     });
@@ -1433,13 +1440,27 @@ function Tabulasi({ user, records, targets, onUpdateRecord, onDeleteRecord }) {
                             {kecRows.length === 0 ? (
                               <div style={{ fontSize: 12, color: COLORS.inkSoft, fontStyle: "italic" }}>Belum ada data kecamatan untuk periode ini.</div>
                             ) : (
-                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "4px 16px" }}>
-                                {kecRows.map((kr) => (
-                                  <div key={kr.kecamatan} style={{ display: "flex", justifyContent: "space-between", padding: "4px 8px", background: COLORS.card, borderRadius: 6, fontSize: 12 }}>
-                                    <span style={{ color: COLORS.ink }}>{kr.kecamatan}</span>
-                                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: kr.total > 0 ? COLORS.teal : COLORS.inkSoft, fontWeight: kr.total > 0 ? 600 : 400 }}>{fmtHa(kr.total)} Ha</span>
-                                  </div>
-                                ))}
+                              <div style={{ overflowX: "auto" }}>
+                                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640, background: COLORS.card, borderRadius: 8 }}>
+                                  <thead>
+                                    <tr style={{ borderBottom: `1px solid ${COLORS.line}` }}>
+                                      <th style={{ ...cellHead, textAlign: "left", padding: "6px 8px" }}>Kecamatan</th>
+                                      {KOMODITAS_LIST.map((k) => <th key={k} style={{ ...cellHead, padding: "6px 8px", fontSize: 10 }}>{k}</th>)}
+                                      <th style={{ ...cellHead, padding: "6px 8px" }}>Total</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {kecRows.map((kr, ki) => (
+                                      <tr key={kr.kecamatan} style={{ borderBottom: ki === kecRows.length - 1 ? "none" : `1px solid ${COLORS.line}` }}>
+                                        <td style={{ padding: "5px 8px", fontSize: 12, color: COLORS.ink }}>{kr.kecamatan}</td>
+                                        {KOMODITAS_LIST.map((k) => (
+                                          <td key={k} style={{ ...cellNum, padding: "5px 8px", fontSize: 11.5, color: kr[k] > 0 ? COLORS.ink : COLORS.line }}>{fmtHa(kr[k])}</td>
+                                        ))}
+                                        <td style={{ ...cellNum, padding: "5px 8px", fontWeight: kr.total > 0 ? 600 : 400, color: kr.total > 0 ? COLORS.teal : COLORS.inkSoft }}>{fmtHa(kr.total)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
                               </div>
                             )}
                           </td>
