@@ -1293,6 +1293,18 @@ function Tabulasi({ user, records, targets, onUpdateRecord, onDeleteRecord }) {
     downloadCSV(`tabulasi-kabupaten-${mode}-bulan${month}.csv`, headers, rows);
   };
 
+  const exportKecamatan = () => {
+    const headers = ["Kabupaten/Kota", "Kecamatan", ...KOMODITAS_LIST, "Total (Ha)"];
+    const rows = [];
+    visibleKabupaten.forEach((k) => {
+      const kecRows = kecamatanBreakdown[k.name] || [];
+      kecRows.forEach((kr) => {
+        rows.push([k.name, kr.kecamatan, ...KOMODITAS_LIST.map((kom) => kr[kom]), kr.total]);
+      });
+    });
+    downloadCSV(`tabulasi-kecamatan-${mode}-bulan${month}.csv`, headers, rows);
+  };
+
   const exportProvinsi = () => {
     const headers = ["Bulan", ...KOMODITAS_LIST, "Total (Ha)"];
     const rows = provMonthly.map((r) => [r.bulan, ...KOMODITAS_LIST.map((k) => r[k]), r.total]);
@@ -1391,12 +1403,21 @@ function Tabulasi({ user, records, targets, onUpdateRecord, onDeleteRecord }) {
                 </select>
               </div>
             </div>
-            <button
-              onClick={exportKabupaten}
-              style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, color: COLORS.ink, cursor: "pointer" }}
-            >
-              <Download size={13} /> Unduh CSV
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={exportKabupaten}
+                style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, color: COLORS.ink, cursor: "pointer" }}
+              >
+                <Download size={13} /> Unduh CSV
+              </button>
+              <button
+                onClick={exportKecamatan}
+                title="Unduh rincian sampai tingkat kecamatan"
+                style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, color: COLORS.ink, cursor: "pointer" }}
+              >
+                <Download size={13} /> CSV per Kecamatan
+              </button>
+            </div>
           </div>
 
           <div style={{ overflowX: "auto" }}>
