@@ -191,6 +191,34 @@ function seedRecords() {
   return records;
 }
 
+function seedPanenRecords() {
+  const rnd = lcg(211); // seed berbeda dari LTT supaya polanya tidak identik
+  const records = [];
+  let idc = 1;
+  KABUPATEN_LIST.forEach((k) => {
+    const kecList = KECAMATAN_MAP[k.name] || [k.name];
+    for (let m = 1; m <= CURRENT_MONTH; m++) {
+      const entriesThisMonth = 1 + Math.floor(rnd() * 3);
+      for (let e = 0; e < entriesThisMonth; e++) {
+        const komoditas = KOMODITAS_LIST[Math.floor(rnd() * KOMODITAS_LIST.length)];
+        const luas = Math.round((6 + rnd() * 36) * 100) / 100;
+        const day = 1 + Math.floor(rnd() * 26);
+        records.push({
+          id: `seed-panen-${idc++}`,
+          kabupatenName: k.name,
+          kecamatan: kecList[Math.floor(rnd() * kecList.length)],
+          komoditas,
+          luas,
+          tanggal: `${YEAR}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+          createdBy: k.slug,
+          createdAt: new Date(YEAR, m - 1, day).toISOString(),
+        });
+      }
+    }
+  });
+  return records;
+}
+
 function seedTargets() {
   const rnd = lcg(133);
   const targets = [];
@@ -221,7 +249,7 @@ function seedTargets() {
 // TEMPEL di sini URL Web App Apps Script setelah di-deploy (lihat panduan yang
 // menyertai file ini). Selama masih kosong, aplikasi otomatis memakai
 // penyimpanan demo bawaan (window.storage) seperti sebelumnya — tidak akan rusak.
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbymRH13LliJQMnT2Ys0O2tbZ31NSWwixV03IckRr8YYqtpk1A1Ib35tekzPpX4Z7e9G/exec";
+const APPS_SCRIPT_URL = "";
 
 const hasBackend = () => APPS_SCRIPT_URL.trim().length > 0;
 
@@ -781,7 +809,10 @@ const tooltipStyle = { background: COLORS.ink, border: "none", borderRadius: 8, 
 /* Input form                                                             */
 /* ---------------------------------------------------------------------- */
 
-function InputForm({ user, onSubmit, records, onUpdate, onDelete }) {
+function InputForm({ user, onSubmit, records, onUpdate, onDelete, kind = "tanam" }) {
+  const isPanen = kind === "panen";
+  const unitLabel = isPanen ? "LTP" : "LTT";
+  const idPrefix = isPanen ? "p" : "r";
   const isProvinsi = user.role === "provinsi";
   const [kabupatenName, setKabupatenName] = useState(isProvinsi ? KABUPATEN_LIST[0].name : user.kabupatenName);
   const kecamatanOptions = KECAMATAN_MAP[kabupatenName] || [];
@@ -802,7 +833,7 @@ function InputForm({ user, onSubmit, records, onUpdate, onDelete }) {
     e.preventDefault();
     if (!kecamatan || !luas) return;
     onSubmit({
-      id: `r-${Date.now()}`,
+      id: `${idPrefix}-${Date.now()}`,
       kabupatenName,
       kecamatan,
       komoditas,
@@ -825,7 +856,7 @@ function InputForm({ user, onSubmit, records, onUpdate, onDelete }) {
   return (
     <div className="grid2" style={{ display: "grid", gridTemplateColumns: "0.85fr 1.15fr", gap: 20 }}>
       <Card style={{ padding: 24 }}>
-        <SectionLabel icon={ClipboardPlus}>Input Laporan Harian LTT</SectionLabel>
+        <SectionLabel icon={ClipboardPlus}>Input Laporan Harian {unitLabel}</SectionLabel>
         <form onSubmit={submit}>
           {isProvinsi && (
             <>
@@ -853,7 +884,7 @@ function InputForm({ user, onSubmit, records, onUpdate, onDelete }) {
 
           <div style={{ display: "flex", gap: 12 }}>
             <div style={{ flex: 1 }}>
-              <label style={labelStyle}>LTT (Ha)</label>
+              <label style={labelStyle}>{unitLabel} (Ha)</label>
               <input type="number" step="0.01" min="0" style={inputStyle} value={luas} onChange={(e) => setLuas(e.target.value)} placeholder="0.00" />
             </div>
             <div style={{ flex: 1 }}>
@@ -1873,6 +1904,278 @@ function HelpModal({ onClose }) {
 }
 
 /* ---------------------------------------------------------------------- */
+/* Luas Tambah Panen (LTP) — dashboard, input, dan tabulasi                */
+/* ---------------------------------------------------------------------- */
+
+function PanenDashboard({ user, records }) {
+  const isProvinsi = user.role === "provinsi";
+  const [mode, setMode] = useState("akumulasi");
+  const [month, setMonth] = useState(CURRENT_MONTH);
+
+  const monthsInRange = useMemo(
+    () => (mode === "akumulasi" ? Array.from({ length: month }, (_, i) => i + 1) : [month]),
+    [mode, month]
+  );
+
+  const visibleKabupaten = isProvinsi ? KABUPATEN_LIST : KABUPATEN_LIST.filter((k) => k.name === user.kabupatenName);
+
+  const kabupatenRows = useMemo(() => {
+    return visibleKabupaten.map((k) => {
+      const row = { name: k.name, lat: k.lat, lon: k.lon };
+      let total = 0;
+      KOMODITAS_LIST.forEach((kom) => {
+        const val = records
+          .filter((r) => r.kabupatenName === k.name && r.komoditas === kom && monthsInRange.includes(parseInt(r.tanggal.slice(5, 7), 10)))
+          .reduce((s, r) => s + r.luas, 0);
+        row[kom] = Math.round(val * 100) / 100;
+        total += val;
+      });
+      row.total = Math.round(total * 100) / 100;
+      return row;
+    });
+  }, [records, monthsInRange, visibleKabupaten]);
+
+  const maxVal = Math.max(1, ...kabupatenRows.map((r) => r.total));
+  const mapData = kabupatenRows.map((r) => ({ ...r, capaian: r.total, target: 0 }));
+  const provTotal = kabupatenRows.reduce((s, r) => s + r.total, 0);
+
+  const komoditasData = useMemo(() => {
+    const scope = isProvinsi ? null : user.kabupatenName;
+    return KOMODITAS_LIST.map((kom) => {
+      const val = records
+        .filter((r) => r.komoditas === kom && (scope ? r.kabupatenName === scope : true))
+        .filter((r) => monthsInRange.includes(parseInt(r.tanggal.slice(5, 7), 10)))
+        .reduce((s, r) => s + r.luas, 0);
+      return { name: kom, value: Math.round(val * 100) / 100 };
+    });
+  }, [records, monthsInRange, isProvinsi, user.kabupatenName]);
+
+  const barData = [...kabupatenRows].sort((a, b) => b.total - a.total).map((r) => ({ name: shortName(r.name), Capaian: r.total }));
+
+  return (
+    <div>
+      <Card style={{ padding: 18, marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end" }}>
+        <div>
+          <label style={labelStyle}>Tampilan</label>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["bulan", "Per Bulan"], ["akumulasi", "Akumulasi Jan–bulan ini"]].map(([v, l]) => (
+              <button
+                key={v}
+                onClick={() => setMode(v)}
+                style={{
+                  padding: "8px 12px", borderRadius: 8, border: `1px solid ${mode === v ? COLORS.teal : COLORS.line}`,
+                  background: mode === v ? COLORS.teal : "#fff", color: mode === v ? "#fff" : COLORS.ink,
+                  fontSize: 12.5, cursor: "pointer", fontWeight: 500,
+                }}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label style={labelStyle}>Bulan</label>
+          <select style={selectStyle} value={month} onChange={(e) => setMonth(parseInt(e.target.value, 10))}>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+              <option key={m} value={m}>{MONTH_NAMES[m - 1]} {YEAR}</option>
+            ))}
+          </select>
+        </div>
+      </Card>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14, marginBottom: 20 }}>
+        <Card style={{ padding: 18 }}>
+          <div style={kpiLabel}>Total Capaian LTP</div>
+          <div style={kpiValue}>{fmtHa(provTotal)} <span style={kpiUnit}>Ha</span></div>
+        </Card>
+        <Card style={{ padding: 18 }}>
+          <div style={kpiLabel}>{isProvinsi ? "Kabupaten/Kota" : "Kecamatan Terpantau"}</div>
+          <div style={kpiValue}>{isProvinsi ? KABUPATEN_LIST.length : (KECAMATAN_MAP[user.kabupatenName] || []).length}</div>
+        </Card>
+      </div>
+
+      <div className="grid2" style={{ display: "grid", gridTemplateColumns: "1.15fr 0.85fr", gap: 20, marginBottom: 20 }}>
+        {isProvinsi && (
+          <Card style={{ padding: 20 }}>
+            <SectionLabel icon={MapPinned}>Peta Sebaran Capaian LTP</SectionLabel>
+            <CapaianMap data={mapData} maxVal={maxVal} />
+            <div style={{ fontSize: 11, color: COLORS.inkSoft, marginTop: 8 }}>Ukuran titik menunjukkan besar capaian panen — belum ada target LTP yang ditetapkan, jadi warna titik belum membedakan status.</div>
+          </Card>
+        )}
+        <Card style={{ padding: 20, gridColumn: isProvinsi ? "auto" : "1 / -1" }}>
+          <SectionLabel icon={Wheat}>Capaian per Komoditas</SectionLabel>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={komoditasData} margin={{ left: -14 }}>
+              <CartesianGrid stroke={COLORS.line} vertical={false} />
+              <XAxis dataKey="name" tick={{ fontSize: 9.5, fill: COLORS.inkSoft }} axisLine={{ stroke: COLORS.line }} tickLine={false} interval={0} angle={-25} textAnchor="end" height={70} />
+              <YAxis tick={{ fontSize: 11, fill: COLORS.inkSoft }} axisLine={false} tickLine={false} width={36} />
+              <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} />
+              <Bar dataKey="value" radius={[5, 5, 0, 0]}>
+                {komoditasData.map((d) => <Cell key={d.name} fill={KOMODITAS_COLORS[d.name]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+
+      {isProvinsi && (
+        <Card style={{ padding: 20 }}>
+          <SectionLabel icon={Table2}>Capaian LTP per Kabupaten/Kota</SectionLabel>
+          <ResponsiveContainer width="100%" height={Math.max(260, barData.length * 26)}>
+            <BarChart data={barData} layout="vertical" margin={{ left: 4, right: 16 }}>
+              <CartesianGrid stroke={COLORS.line} horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 11, fill: COLORS.inkSoft }} axisLine={{ stroke: COLORS.line }} tickLine={false} />
+              <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11, fill: COLORS.ink }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={tooltipStyle} itemStyle={{ color: "#fff" }} labelStyle={{ color: "#fff" }} />
+              <Bar dataKey="Capaian" fill={COLORS.teal} radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function PanenTabulasi({ user, records }) {
+  const isProvinsi = user.role === "provinsi";
+  const [mode, setMode] = useState("akumulasi");
+  const [month, setMonth] = useState(CURRENT_MONTH);
+
+  const monthsInRange = useMemo(
+    () => (mode === "akumulasi" ? Array.from({ length: month }, (_, i) => i + 1) : [month]),
+    [mode, month]
+  );
+
+  const visibleKabupaten = isProvinsi ? KABUPATEN_LIST : KABUPATEN_LIST.filter((k) => k.name === user.kabupatenName);
+
+  const rows = useMemo(() => {
+    return visibleKabupaten.map((k) => {
+      const row = { name: k.name };
+      let total = 0;
+      KOMODITAS_LIST.forEach((kom) => {
+        const val = records
+          .filter((r) => r.kabupatenName === k.name && r.komoditas === kom && monthsInRange.includes(parseInt(r.tanggal.slice(5, 7), 10)))
+          .reduce((s, r) => s + r.luas, 0);
+        row[kom] = Math.round(val * 100) / 100;
+        total += val;
+      });
+      row.total = Math.round(total * 100) / 100;
+      return row;
+    });
+  }, [records, monthsInRange, visibleKabupaten]);
+
+  const totalRow = useMemo(() => {
+    const row = { name: "TOTAL PROVINSI NTT" };
+    let total = 0;
+    KOMODITAS_LIST.forEach((kom) => {
+      const v = rows.reduce((s, r) => s + (r[kom] || 0), 0);
+      row[kom] = Math.round(v * 100) / 100;
+      total += v;
+    });
+    row.total = Math.round(total * 100) / 100;
+    return row;
+  }, [rows]);
+
+  const exportCSV = () => {
+    const headers = ["Kabupaten/Kota", ...KOMODITAS_LIST, "Total (Ha)"];
+    const data = isProvinsi ? [...rows, totalRow] : rows;
+    const csvRows = data.map((r) => [r.name, ...KOMODITAS_LIST.map((k) => r[k]), r.total]);
+    downloadCSV(`tabulasi-panen-${mode}-bulan${month}.csv`, headers, csvRows);
+  };
+
+  return (
+    <Card style={{ padding: 20 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-end", gap: 14, marginBottom: 16 }}>
+        <div>
+          <SectionLabel icon={Table2}>{isProvinsi ? "Tabulasi LTP — 22 Kabupaten/Kota" : `Tabulasi LTP — ${shortName(user.kabupatenName)}`}</SectionLabel>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[["bulan", "Per Bulan"], ["akumulasi", "Akumulasi Jan–bulan ini"]].map(([v, l]) => (
+                <button
+                  key={v}
+                  onClick={() => setMode(v)}
+                  style={{
+                    padding: "7px 11px", borderRadius: 8, border: `1px solid ${mode === v ? COLORS.teal : COLORS.line}`,
+                    background: mode === v ? COLORS.teal : "#fff", color: mode === v ? "#fff" : COLORS.ink,
+                    fontSize: 12, cursor: "pointer", fontWeight: 500,
+                  }}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+            <select style={{ ...selectStyle, padding: "7px 10px", fontSize: 12.5 }} value={month} onChange={(e) => setMonth(parseInt(e.target.value, 10))}>
+              {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                <option key={m} value={m}>{MONTH_NAMES[m - 1]} {YEAR}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <button
+          onClick={exportCSV}
+          style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, color: COLORS.ink, cursor: "pointer" }}
+        >
+          <Download size={13} /> Unduh CSV
+        </button>
+      </div>
+
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700 }}>
+          <thead>
+            <tr style={{ borderBottom: `2px solid ${COLORS.line}` }}>
+              <th style={{ ...cellHead, textAlign: "left" }}>Kabupaten/Kota</th>
+              {KOMODITAS_LIST.map((k) => <th key={k} style={cellHead}>{k}</th>)}
+              <th style={cellHead}>Total (Ha)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.name} style={{ borderBottom: `1px solid ${COLORS.line}`, background: i % 2 ? COLORS.bgAlt : "transparent" }}>
+                <td style={{ padding: "8px 10px", fontSize: 12.5, fontWeight: 500 }}>{shortName(r.name)}</td>
+                {KOMODITAS_LIST.map((k) => <td key={k} style={cellNum}>{fmtHa(r[k])}</td>)}
+                <td style={{ ...cellNum, fontWeight: 600 }}>{fmtHa(r.total)}</td>
+              </tr>
+            ))}
+            {isProvinsi && (
+              <tr style={{ borderTop: `2px solid ${COLORS.line}`, background: COLORS.tealSoft }}>
+                <td style={{ padding: "9px 10px", fontSize: 12.5, fontWeight: 700 }}>{totalRow.name}</td>
+                {KOMODITAS_LIST.map((k) => <td key={k} style={{ ...cellNum, fontWeight: 700 }}>{fmtHa(totalRow[k])}</td>)}
+                <td style={{ ...cellNum, fontWeight: 700 }}>{fmtHa(totalRow.total)}</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function PanenSection({ user, records, onAddRecord, onUpdateRecord, onDeleteRecord }) {
+  const [subTab, setSubTab] = useState("dashboard");
+  return (
+    <div>
+      <Card style={{ padding: 6, marginBottom: 20, display: "inline-flex", gap: 4 }}>
+        {[["dashboard", "Dashboard"], ["input", "Input Laporan"], ["tabulasi", "Tabulasi"]].map(([v, l]) => (
+          <button
+            key={v}
+            onClick={() => setSubTab(v)}
+            style={{
+              padding: "9px 16px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500,
+              background: subTab === v ? COLORS.teal : "transparent", color: subTab === v ? "#fff" : COLORS.inkSoft,
+            }}
+          >
+            {l}
+          </button>
+        ))}
+      </Card>
+      {subTab === "dashboard" && <PanenDashboard user={user} records={records} />}
+      {subTab === "input" && <InputForm kind="panen" user={user} onSubmit={onAddRecord} records={records} onUpdate={onUpdateRecord} onDelete={onDeleteRecord} />}
+      {subTab === "tabulasi" && <PanenTabulasi user={user} records={records} />}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
 /* App shell                                                              */
 /* ---------------------------------------------------------------------- */
 
@@ -1881,6 +2184,7 @@ export default function App() {
   const [users, setUsers] = useState(DEFAULT_USERS);
   const [records, setRecords] = useState([]);
   const [targets, setTargets] = useState([]);
+  const [panenRecords, setPanenRecords] = useState([]);
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("dashboard");
   const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
@@ -1925,13 +2229,14 @@ export default function App() {
 
       if (hasBackend()) {
         try {
-          const [r, t] = await Promise.all([sheetsGet("getRecords"), sheetsGet("getTargets")]);
+          const [r, t, p] = await Promise.all([sheetsGet("getRecords"), sheetsGet("getTargets"), sheetsGet("getPanenRecords").catch(() => [])]);
           setRecords(Array.isArray(r) ? r : []);
           setTargets(Array.isArray(t) ? t : []);
+          setPanenRecords(Array.isArray(p) ? p : []);
           setBackendError(null);
         } catch (err) {
           setBackendError(String(err.message || err));
-          setRecords([]); setTargets([]);
+          setRecords([]); setTargets([]); setPanenRecords([]);
         }
         setDataLoading(false);
         return;
@@ -1944,7 +2249,10 @@ export default function App() {
       let t = await loadKey("ltt:targets", null);
       if (!t) { t = seedTargets(); await saveKey("ltt:targets", t); }
 
-      setRecords(r); setTargets(t);
+      let p = await loadKey("ltt:panen_records", null);
+      if (!p) { p = seedPanenRecords(); await saveKey("ltt:panen_records", p); }
+
+      setRecords(r); setTargets(t); setPanenRecords(p);
       setDataLoading(false);
     })();
   }, []);
@@ -1962,6 +2270,57 @@ export default function App() {
     setRecords((prev) => {
       const next = [...prev, rec];
       saveKey("ltt:records", next);
+      return next;
+    });
+  }, []);
+
+  const addPanenRecord = useCallback(async (rec) => {
+    if (hasBackend()) {
+      setPanenRecords((prev) => [...prev, rec]);
+      try {
+        await sheetsPost("addPanenRecord", rec);
+      } catch (err) {
+        setBackendError(String(err.message || err));
+      }
+      return;
+    }
+    setPanenRecords((prev) => {
+      const next = [...prev, rec];
+      saveKey("ltt:panen_records", next);
+      return next;
+    });
+  }, []);
+
+  const updatePanenRecord = useCallback(async (id, updates) => {
+    if (hasBackend()) {
+      setPanenRecords((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
+      try {
+        await sheetsPost("updatePanenRecord", { id, ...updates });
+      } catch (err) {
+        setBackendError(String(err.message || err));
+      }
+      return;
+    }
+    setPanenRecords((prev) => {
+      const next = prev.map((r) => (r.id === id ? { ...r, ...updates } : r));
+      saveKey("ltt:panen_records", next);
+      return next;
+    });
+  }, []);
+
+  const deletePanenRecord = useCallback(async (id) => {
+    if (hasBackend()) {
+      setPanenRecords((prev) => prev.filter((r) => r.id !== id));
+      try {
+        await sheetsPost("deletePanenRecord", { id });
+      } catch (err) {
+        setBackendError(String(err.message || err));
+      }
+      return;
+    }
+    setPanenRecords((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      saveKey("ltt:panen_records", next);
       return next;
     });
   }, []);
@@ -2085,6 +2444,7 @@ export default function App() {
     { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
     { key: "input", label: "Input Data", icon: ClipboardPlus },
     { key: "tabulasi", label: "Tabulasi", icon: Table2 },
+    { key: "panen", label: "Luas Tambah Panen", icon: Wheat },
     ...(user.role === "provinsi" ? [
       { key: "target", label: "Kelola Target", icon: TargetIcon },
       { key: "akun", label: "Kelola Akun", icon: Users },
@@ -2243,6 +2603,7 @@ export default function App() {
             {tab === "dashboard" && <Dashboard user={user} records={records} targets={targets} />}
             {tab === "input" && <InputForm user={user} onSubmit={addRecord} records={records} onUpdate={updateRecord} onDelete={deleteRecord} />}
             {tab === "tabulasi" && <Tabulasi user={user} records={records} targets={targets} onUpdateRecord={updateRecord} onDeleteRecord={deleteRecord} />}
+            {tab === "panen" && <PanenSection user={user} records={panenRecords} onAddRecord={addPanenRecord} onUpdateRecord={updatePanenRecord} onDeleteRecord={deletePanenRecord} />}
             {tab === "target" && user.role === "provinsi" && <TargetManager targets={targets} onAdd={addTarget} onUpdate={updateTarget} onDelete={deleteTarget} />}
             {tab === "akun" && user.role === "provinsi" && <KelolaAkun users={users} onResetPassword={resetKabupatenPassword} />}
           </main>
